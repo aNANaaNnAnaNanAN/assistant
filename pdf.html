@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://mozilla.github.io/pdf.js/build/pdf.mjs" type="module"></script>
+</head>
+<body>
+    <input type="file" id="pdfFile" accept=".pdf">
+    <pre id="output"></pre>
+
+    <script type="module">
+        import * as pdfjsLib from 'https://mozilla.github.io/pdf.js/build/pdf.mjs';
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://mozilla.github.io/pdf.js/build/pdf.worker.mjs';
+
+        document.getElementById('pdfFile').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+
+            reader.onload = async (event) => {
+                const pdfData = new Uint8Array(event.target.result);
+                const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+                let fullText = '';
+
+                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                    const page = await pdf.getPage(pageNum);
+                    const textContent = await page.getTextContent();
+                    fullText += textContent.items.map(item => item.str).join(' ');
+                }
+
+                // Парсинг транзакций (пример регулярного выражения)
+                const transactions = parseTransactions(fullText);
+                document.getElementById('output').textContent = JSON.stringify(transactions, null, 2);
+            };
+
+            reader.readAsArrayBuffer(file);
+        });
+
+        function parseTransactions(text) {
+            // Пример regex для даты, описания и суммы (настройте под ваш формат!)
+            const regex = /(\d{2}-\d{2}-\d{4})(.*?)(-?\d+[\s,]*\d+,\d{2})/g;
+            const transactions = [];
+            let match;
+
+            while ((match = regex.exec(text)) !== null) {
+                const [_, date, description, amount] = match;
+                transactions.push({
+                    date: date.trim(),
+                    description: description.trim(),
+                    amount: amount.replace(/\s/g, '').replace(',', '.')
+                });
+            }
+
+            return transactions;
+        }
+    </script>
+</body>
+</html>

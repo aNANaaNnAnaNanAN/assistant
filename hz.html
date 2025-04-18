@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PDF Parser</title>
+    <script src="https://mozilla.github.io/pdf.js/build/pdf.mjs" type="module"></script>
+    <style>
+        #output {
+            margin: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .expense {
+            color: #c00;
+            font-weight: bold;
+        }
+        .income {
+            color: #090;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <input type="file" id="pdfInput" accept=".pdf">
+    <div id="output"></div>
+
+    <script type="module">
+        import * as pdfjsLib from 'https://mozilla.github.io/pdf.js/build/pdf.mjs';
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://mozilla.github.io/pdf.js/build/pdf.worker.mjs';
+
+        const TABLE_CONFIG = {
+            headerLevels: 2,
+            rowTolerance: 2
+        };
+
+        document.getElementById('pdfInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                try {
+                    const pdfData = new Uint8Array(event.target.result);
+                    const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+                    const textItems = await extractTextWithCoordinates(pdf);
+                    const result = processPDF(textItems);
+                    displayResults(result);
+                } catch (err) {
+                    console.error('Error:', err);
+                    output.innerHTML = 'Ошибка обработки PDF';
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        async function extractTextWithCoordinates(pdf) {
+            const textItems = [];
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+                const textContent = await page.getTextContent();
+                textItems.push(...textContent.items.map(item => ({
+                    text: item.str,
+                    y: item.transform[5]
+                })));
+            }
+            return textItems;
+        }
+
+        function processPDF(textItems) {
+            const rows = groupByRows(textItems);
+            const tableData = detectTableStructure(rows);
+            return buildHierarchy(tableData);
+        }
+
+        function groupByRows(items) {
+            return items.reduce((acc, item) => {
+                const existingRow = acc.find(row => 
+                    Math.abs(row.y - item.y) < TABLE_CONFIG.rowTolerance
+                );
+                existingRow 
+                    ? existingRow.texts.push(item.text)
+                    : acc.push({ y: item.y, texts: [item.text] });
+                return acc;
+            }, []);
+        }
+
+        function detectTableStructure(rows) {
+            const headerY = Math.max(...rows.map(r => r.y));
+            return rows.map(row => ({
+                texts: row.texts,
+                isHeader: row.y >= headerY - TABLE_CONFIG.rowTolerance
+            }));
+        }
+
+        function buildHierarchy(tableData) {
+            const headers = [];
+            const data = [];
+            
+            tableData.forEach(row => {
+                if (row.isHeader) {
+                    headers.push(row.texts);
+                } else if (headers.length > 0) {
+                    const obj = {};
+                    headers[0].forEach((header, index) => {
+                        obj[header] = {
+                            value: row.texts[index] || '',
+                            subHeader: headers[1]?.[index] || ''
+                        };
+                    });
+                    data.push(obj);
+                }
+            });
+            
+            return {
+                metadata: {
+                    pages: 1,
+                    tables: 1
+                },
+                data
+            };
+        }
+
+        // Функция распознавания трат
+        function isExpense(cellValue) {
+            // RUB или ₽ перед числом (например: "RUB 123.45" или "₽123.45" или "-123.45 RUB")
+            return /(?:RUB|₽)\s*-?\d+([.,]\d+)?/i.test(cellValue) || /-?\d+([.,]\d+)?\s*(RUB|₽)/i.test(cellValue);
+        }
+
+        function displayResults(result) {
+            const output = document.getElementById('output');
+            output.innerHTML = '';
+            
+            if (result.data.length === 0) {
+                output.innerHTML = 'Не найдено данных для отображения';
+                return;
+            }
+
+            const table = document.createElement('table');
+            const thead = document.createElement('thead');
+            const tbody = document.createElement('tbody');
+
+            // Создание заголовков
+            const headerRow = document.createElement('tr');
+            Object.keys(result.data[0]).forEach(key => {
+                const th = document.createElement('th');
+                th.textContent = key;
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+
+            // Заполнение данных
+            result.data.forEach(row => {
+                const tr = document.createElement('tr');
+                Object.entries(row).forEach(([key, cell]) => {
+                    const td = document.createElement('td');
+                    if (key.toLowerCase().includes('сумма') || key.toLowerCase().includes('amount')) {
+                        td.innerHTML = `<b>${cell.value}</b><br><small>${cell.subHeader}</small>`;
+                        if (isExpense(cell.value)) {
+                            td.className = 'expense';
+                        } else {
+                            td.className = 'income';
+                        }
+                    } else {
+                        td.innerHTML = `<b>${cell.value}</b><br><small>${cell.subHeader}</small>`;
+                    }
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+
+            table.appendChild(tbody);
+            output.appendChild(table);
+        }
+    </script>
+
+    <a href="index.html" class="button">Вернуться на главную страницу</a>
+
+</body>
+</html>
+
+
+
+
