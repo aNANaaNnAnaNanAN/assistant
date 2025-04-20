@@ -15,7 +15,7 @@ async function parsePDF(filePath) {
     
     // 4. Обработка данных
     const data = lines.slice(2).map(line => {
-      const values = line.split(/\s{2,}/); // Разделение по 2+ пробелам
+      const values = line.split(/\s{2,}/); 
       return {
         date: values[0] || '',
         description: values[1] || '',
