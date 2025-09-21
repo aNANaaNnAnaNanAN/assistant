@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Загрузка и парсинг выписки</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <style>
+    body {
+      padding: 20px;
+      background-color: #f8f9fa;
+    }
+    #result {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 class="mb-4">Загрузка и парсинг выписки</h1>
+
+    <div class="mb-3">
+      <label for="pdfInput" class="form-label">Выберите PDF файл выписки</label>
+      <input type="file" class="form-control" id="pdfInput" accept="application/pdf" />
+    </div>
+
+    <div id="result"></div>
+
+    <a href="welcome.html" class="btn btn-secondary mt-3">На главную</a>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    const pdfInput = document.getElementById('pdfInput');
+    const resultDiv = document.getElementById('result');
+
+    function renderTable(transactions) {
+      const table = document.createElement('table');
+      table.className = 'table table-bordered table-striped mt-3';
+      const header = document.createElement('tr');
+      header.innerHTML = `
+        <th>Дата и время операции</th>
+        <th>Дата списания</th>
+        <th>Сумма в валюте операции</th>
+        <th>Сумма операции в валюте карты</th>
+        <th>Описание операции</th>
+        <th>Номер карты</th>
+      `;
+      table.appendChild(header);
+
+      transactions.forEach(tx => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${tx.operationDate}</td>
+          <td>${tx.debitDate}</td>
+          <td>${tx.operationAmount}</td>
+          <td>${tx.cardAmount}</td>
+          <td>${tx.description}</td>
+          <td>${tx.cardNumber}</td>
+        `;
+        table.appendChild(row);
+      });
+
+      return table;
+    }
+
+    pdfInput.addEventListener('change', async () => {
+      const file = pdfInput.files[0];
+      if (!file) {
+        resultDiv.textContent = '';
+        return;
+      }
+
+      resultDiv.textContent = 'Обрабатываю файл...';
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+
+        let fullText = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          const strings = content.items.map(item => item.str.trim());
+          fullText += strings.join(' ') + '\n';
+        }
+
+        const txRegex = /(\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2})\s+(\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2})\s+([+\-]?[ \d,.]+ ₽)\s+([+\-]?[ \d,.]+ ₽)\s+(.+?)\s+(\d{4})/g;
+        const transactions = [];
+        let match;
+
+        while ((match = txRegex.exec(fullText)) !== null) {
+          transactions.push({
+            operationDate: match[1],
+            debitDate: match[2],
+            operationAmount: match[3].replace(/\s/g, ''),
+            cardAmount: match[4].replace(/\s/g, ''),
+            description: match[5].trim(),
+            cardNumber: match[6]
+          });
+        }
+
+        if (transactions.length === 0) {
+          resultDiv.textContent = 'Не удалось распознать транзакции в данном файле.';
+          return;
+        }
+
+        // Загружаем предыдущие выписки
+        const savedData = JSON.parse(localStorage.getItem('statements') || '[]');
+
+        // Добавляем новую выписку с уникальным ID и датой загрузки
+        const newEntry = {
+          id: 'stmt_' + Date.now(),
+          dateUploaded: new Date().toLocaleString(),
+          transactions: transactions
+        };
+        savedData.push(newEntry);
+
+        // Сохраняем обратно в localStorage
+        localStorage.setItem('statements', JSON.stringify(savedData));
+
+        // Выводим сообщение и таблицу с текущей выпиской
+        resultDiv.innerHTML = `<div class="alert alert-success">Выписка успешно загружена и сохранена (${transactions.length} транзакций).</div>`;
+        resultDiv.appendChild(renderTable(transactions));
+
+      } catch (error) {
+        resultDiv.innerHTML = `<div class="alert alert-danger">Ошибка при обработке файла: ${error.message}</div>`;
+      }
+    });
+  </script>
+</body>
+</html>
+
