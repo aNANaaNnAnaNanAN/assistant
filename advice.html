@@ -23,108 +23,122 @@
     <button id="compareBtn" class="btn btn-primary" disabled>Сравнить выбранные</button>
     <div id="advice" class="mt-4"></div>
 
-    <a href="welcome.html" class="btn btn-secondary mt-4">На главную</a>
+    <a class='btn btn-secondary mt-4' href='/index.html'>На главную</a>
   </div>
 
-  <script>
-    const statementListDiv = document.querySelector('.statement-list');
-    const compareBtn = document.getElementById('compareBtn');
-    const adviceDiv = document.getElementById('advice');
-    let selectedIds = [];
+<script>
+  const statementListDiv = document.querySelector('.statement-list');
+  const compareBtn = document.getElementById('compareBtn');
+  const adviceDiv = document.getElementById('advice');
+  let selectedIds = [];
 
-    function loadStatements() {
-      const data = JSON.parse(localStorage.getItem('statements') || '[]');
-      statementListDiv.innerHTML = '';
+  function loadStatements() {
+    const data = JSON.parse(localStorage.getItem('statements') || '[]');
+    statementListDiv.innerHTML = '';
 
-      if (data.length === 0) {
-        statementListDiv.innerHTML = '<p>Выписки не загружены.</p>';
-        compareBtn.disabled = true;
-        return;
-      }
+    if (data.length === 0) {
+      statementListDiv.innerHTML = '<p>Выписки не загружены.</p>';
+      compareBtn.disabled = true;
+      return;
+    }
 
-      data.forEach(entry => {
-        const label = document.createElement('label');
-        label.className = 'd-block mb-2';
+    data.forEach((entry, index) => {
+      const label = document.createElement('label');
+      label.className = 'd-block mb-2';
 
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.value = entry.id;
-        checkbox.className = 'me-2';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = entry.id;
+      checkbox.className = 'me-2';
 
-        checkbox.addEventListener('change', () => {
-          if (checkbox.checked) {
-            if (selectedIds.length < 2) {
-              selectedIds.push(checkbox.value);
-            } else {
-              checkbox.checked = false;
-              alert('Можно выбрать только две выписки для сравнения.');
-            }
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          if (selectedIds.length < 2) {
+            selectedIds.push(checkbox.value);
           } else {
-            selectedIds = selectedIds.filter(id => id !== checkbox.value);
+            checkbox.checked = false;
+            alert('Можно выбрать только две выписки для сравнения.');
           }
+        } else {
+          selectedIds = selectedIds.filter(id => id !== checkbox.value);
+        }
+        compareBtn.disabled = selectedIds.length !== 2;
+      });
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.textContent = 'Удалить';
+      deleteBtn.className = 'btn btn-danger btn-sm ms-2';
+      deleteBtn.onclick = () => {
+        if (confirm('Вы действительно хотите удалить эту выписку?')) {
+          const updatedData = JSON.parse(localStorage.getItem('statements') || '[]');
+          updatedData.splice(index, 1);
+          localStorage.setItem('statements', JSON.stringify(updatedData));
+          selectedIds = selectedIds.filter(id => id !== entry.id);
           compareBtn.disabled = selectedIds.length !== 2;
-        });
+          loadStatements();
+        }
+      };
 
-        label.appendChild(checkbox);
-        label.appendChild(document.createTextNode(`Выписка от ${entry.dateUploaded} (${entry.transactions.length} транзакций)`));
-        statementListDiv.appendChild(label);
-      });
-    }
-
-    function parseAmount(str) {
-      return parseFloat(str.replace(/[^\d.,\-]/g, '').replace(',', '.')) || 0;
-    }
-
-    function sumInOut(transactions) {
-      let income = 0, expenses = 0;
-      transactions.forEach(t => {
-        const val = parseAmount(t.operationAmount);
-        if (val > 0) income += val;
-        else expenses += Math.abs(val);
-      });
-      return { income, expenses };
-    }
-
-    function analyze(prev, curr) {
-      const prevSum = sumInOut(prev);
-      const currSum = sumInOut(curr);
-      const advice = [];
-
-      if (currSum.income > prevSum.income) {
-        advice.push(`Доходы выросли на ${(currSum.income - prevSum.income).toFixed(2)} ₽. Хорошая работа!`);
-      } else if (currSum.income < prevSum.income) {
-        advice.push(`Доходы снизились на ${(prevSum.income - currSum.income).toFixed(2)} ₽. Постарайтесь увеличить доходы.`);
-      } else {
-        advice.push('Доходы остались на прежнем уровне.');
-      }
-
-      if (currSum.expenses > prevSum.expenses) {
-        advice.push(`Расходы выросли на ${(currSum.expenses - prevSum.expenses).toFixed(2)} ₽. Проверьте, можно ли их сократить.`);
-      } else if (currSum.expenses < prevSum.expenses) {
-        advice.push(`Расходы снизились на ${(prevSum.expenses - currSum.expenses).toFixed(2)} ₽. Это положительный знак!`);
-      } else {
-        advice.push('Расходы остались на прежнем уровне.');
-      }
-
-      return advice;
-    }
-
-    compareBtn.addEventListener('click', () => {
-      const data = JSON.parse(localStorage.getItem('statements') || '[]');
-      const first = data.find(d => d.id === selectedIds[0]);
-      const second = data.find(d => d.id === selectedIds[1]);
-
-      if (!first || !second) {
-        adviceDiv.textContent = 'Ошибка загрузки выписок для сравнения.';
-        return;
-      }
-
-      const advices = analyze(first.transactions, second.transactions);
-
-      adviceDiv.innerHTML = '<h3>Советы по финансам:</h3>' + advices.map(a => `<p>${a}</p>`).join('');
+      label.appendChild(checkbox);
+      label.appendChild(document.createTextNode(`Выписка от ${entry.dateUploaded} (${entry.transactions.length} транзакций)`));
+      label.appendChild(deleteBtn);
+      statementListDiv.appendChild(label);
     });
+  }
 
-    loadStatements();
-  </script>
+  function parseAmount(str) {
+    return parseFloat(str.replace(/[^\d.,\-]/g, '').replace(',', '.')) || 0;
+  }
+
+  function sumInOut(transactions) {
+    let income = 0, expenses = 0;
+    transactions.forEach(t => {
+      const val = parseAmount(t.operationAmount);
+      if (val > 0) income += val;
+      else expenses += Math.abs(val);
+    });
+    return { income, expenses };
+  }
+
+  function analyze(prev, curr) {
+    const prevSum = sumInOut(prev);
+    const currSum = sumInOut(curr);
+    const advice = [];
+
+    if (currSum.income > prevSum.income) {
+      advice.push(`Доходы выросли на ${(currSum.income - prevSum.income).toFixed(2)} ₽. Хорошая работа!`);
+    } else if (currSum.income < prevSum.income) {
+      advice.push(`Доходы снизились на ${(prevSum.income - currSum.income).toFixed(2)} ₽. Постарайтесь увеличить доходы.`);
+    } else {
+      advice.push('Доходы остались на прежнем уровне.');
+    }
+
+    if (currSum.expenses > prevSum.expenses) {
+      advice.push(`Расходы выросли на ${(currSum.expenses - prevSum.expenses).toFixed(2)} ₽. Проверьте, можно ли их сократить.`);
+    } else if (currSum.expenses < prevSum.expenses) {
+      advice.push(`Расходы снизились на ${(prevSum.expenses - currSum.expenses).toFixed(2)} ₽. Это положительный знак!`);
+    } else {
+      advice.push('Расходы остались на прежнем уровне.');
+    }
+
+    return advice;
+  }
+
+  compareBtn.addEventListener('click', () => {
+    const data = JSON.parse(localStorage.getItem('statements') || '[]');
+    const first = data.find(d => d.id === selectedIds[0]);
+    const second = data.find(d => d.id === selectedIds[1]);
+
+    if (!first || !second) {
+      adviceDiv.textContent = 'Ошибка загрузки выписок для сравнения.';
+      return;
+    }
+
+    const advices = analyze(first.transactions, second.transactions);
+    adviceDiv.innerHTML = '<h3>Советы по финансам:</h3>' + advices.map(a => `<p>${a}</p>`).join('');
+  });
+
+  loadStatements();
+</script>
 </body>
 </html>

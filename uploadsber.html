@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Загрузка и парсинг выписки Сбербанк</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    body { padding:20px; background:#f8f9fa; font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    #result { margin-top:20px; }
+    th, td { font-size:14px !important; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 class="mb-4">Загрузка и парсинг выписки Сбербанк</h1>
+    <div class="mb-3">
+      <label for="pdfInput" class="form-label">Выберите PDF файл выписки</label>
+      <input type="file" class="form-control" id="pdfInput" accept="application/pdf" />
+    </div>
+    <div id="result"></div>
+    <a class='btn btn-secondary mt-3' href='/index.html'>На главную</a>
+  </div>
+
+<script>
+const pdfInput = document.getElementById('pdfInput');
+const resultDiv = document.getElementById('result');
+
+function renderTable(transactions) {
+  const table = document.createElement('table');
+  table.className = 'table table-bordered table-striped mt-3';
+  const header = document.createElement('tr');
+  header.innerHTML = `
+    <th>Дата и время операции</th>
+    <th>Дата списания</th>
+    <th>Сумма в валюте операции</th>
+    <th>Сумма в валюте карты</th>
+    <th>Описание операции</th>
+    <th>Номер карты</th>
+  `;
+  table.appendChild(header);
+
+  transactions.forEach(tx => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${tx.operationDate || ''}</td>
+      <td>${tx.debitDate || ''}</td>
+      <td>${tx.operationAmount || ''}</td>
+      <td>${tx.cardAmount || ''}</td>
+      <td>${tx.description || ''}</td>
+      <td>${tx.cardNumber || ''}</td>
+    `;
+    table.appendChild(row);
+  });
+
+  return table;
+}
+
+pdfInput.addEventListener('change', async () => {
+  const file = pdfInput.files[0];
+  if (!file) {
+    resultDiv.textContent = '';
+    return;
+  }
+  resultDiv.textContent = 'Обрабатываю файл...';
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+    let fullText = '';
+    for (let i=1; i<=pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      fullText += content.items.map(item => item.str.trim()).join(' ') + ' ';
+    }
+
+    // Общий парсинг операций из Сбера
+    const opRegex = /(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})\s+\d+\s+(.*?)(?=\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}\s+\d+|$)/gs;
+    const badWords = /Продолжение|страница|Генеральная|Лицензия|Дата списания|остаток|Сбербанк/i;
+
+    const parsedTransactions = [];
+    let match;
+    while ((match = opRegex.exec(fullText)) !== null) {
+      let [_, date, time, block] = match;
+      if (badWords.test(block)) continue;
+      let cleanBlock = block.replace(/\b\d{6}\b/g, ' ');
+      let numbers = Array.from(cleanBlock.matchAll(/[+\-]?\d{1,3}(?: \d{3})*(?:[.,]\d+)?/g)).map(a => a[0].replace(/\s/g,'').replace(',', '.'));
+      if (!numbers.length) continue;
+      let amount = numbers[0];
+      let currencyMatch = cleanBlock.match(/(RUB|РУБ|₽)/i);
+      let currency = currencyMatch ? currencyMatch[1] : 'RUB';
+      let posAmount = cleanBlock.indexOf(numbers[0]);
+      let description = cleanBlock.slice(0, posAmount).replace(/(RUB|РУБ|₽)/gi, '').trim();
+      if (!description) description = '(без описания)';
+
+      // Формируем объект в формате страницы советов
+      parsedTransactions.push({
+        operationDate: date + ' ' + time,
+        debitDate: '',            // Нет данных, можно пустым
+        operationAmount: amount,
+        cardAmount: '',           // Нет данных, можно пустым
+        description: description,
+        cardNumber: ''            // Нет данных, можно пустым
+      });
+    }
+
+    if (!parsedTransactions.length) {
+      resultDiv.innerHTML = `<div class="alert alert-danger">Не удалось распознать транзакции. Проверьте файл!</div>`;
+      resultDiv.innerHTML += `<pre style="white-space:pre-wrap;background:#ffe;padding:5px;">${fullText}</pre>`;
+      return;
+    }
+
+    // Сохраняем в localStorage в нужном формате
+    const saved = JSON.parse(localStorage.getItem('statements') || '[]');
+    saved.push({
+      id: 'stmt_' + Date.now(),
+      dateUploaded: new Date().toLocaleString(),
+      transactions: parsedTransactions
+    });
+    localStorage.setItem('statements', JSON.stringify(saved));
+
+    resultDiv.innerHTML = `<div class="alert alert-success">Выписка успешно загружена и сохранена (${parsedTransactions.length} транзакций).</div>`;
+    resultDiv.appendChild(renderTable(parsedTransactions));
+
+  } catch (error) {
+    resultDiv.innerHTML = `<div class="alert alert-danger">Ошибка при обработке файла: ${error.message}</div>`;
+  }
+});
+</script>
+</body>
+</html>
+
